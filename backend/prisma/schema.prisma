@@ -1,0 +1,296 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum CrawlStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ConfirmationStatus {
+  UNREVIEWED
+  CONFIRMED
+  REJECTED
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum AssetType {
+  IMAGE
+  VIDEO
+}
+
+enum JobType {
+  GENERATE_DAILY_POST
+  REGENERATE_CAPTION
+  REGENERATE_IMAGE
+  WEBSITE_CRAWL
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id           String               @id @default(uuid())
+  name         String
+  email        String               @unique
+  passwordHash String
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  ownedBusinesses  Business[]           @relation("BusinessOwner")
+  memberships      BusinessMembership[]
+  consent          UserConsent?
+  socialConnections SocialConnection[]
+
+  @@map("users")
+}
+
+
+model Business {
+  id                String                 @id @default(uuid())
+  ownerId           String
+  name              String
+  websiteUrl        String?
+  industry          String?
+  description       String?
+  location          String?
+  brandTone         String?
+  targetAudience    String?
+  preferredLanguage String                 @default("en")
+  status            String                 @default("ACTIVE")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  owner             User                   @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships       BusinessMembership[]
+  profileSources    BusinessProfileSource[]
+  posts             Post[]
+  generationJobs    GenerationJob[]
+  settings          BusinessSettings?
+
+  @@index([ownerId])
+  @@map("businesses")
+}
+
+model BusinessMembership {
+  id         String   @id @default(uuid())
+  businessId String
+  userId     String
+  role       Role     @default(MEMBER)
+  createdAt  DateTime @default(now())
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("business_memberships")
+}
+
+model BusinessProfileSource {
+  id                     String             @id @default(uuid())
+  businessId             String
+  sourceUrl              String
+  extractedData          Json?
+  extractionTimestamp    DateTime?
+  crawlStatus            CrawlStatus        @default(PENDING)
+  errorDetails           String?
+  userConfirmationStatus ConfirmationStatus @default(UNREVIEWED)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  business               Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("business_profile_sources")
+}
+
+model Post {
+  id              String                 @id @default(uuid())
+  businessId      String
+  title           String
+  caption         String
+  hashtags        String[]
+  callToAction    String
+  imagePrompt     String?
+  platform        String                 @default("INSTAGRAM")
+  language        String                 @default("en")
+  contentGoal     String
+  status          PostStatus             @default(DRAFT)
+  targetDate      String?                // YYYY-MM-DD in business timezone
+  isDailyPost     Boolean                @default(true)
+  generationJobId String?
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  archivedAt      DateTime?
+  platformPostId  String?                // ID returned by LinkedIn/X after posting
+  platformPostUrl String?                // Public URL of the published post
+  failureReason   String?                // Set when status = FAILED
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assets          PostAsset[]
+  snapshots       PerformanceSnapshot[]
+
+  @@index([businessId, status])
+  @@index([businessId, targetDate])
+  @@map("posts")
+}
+
+model PostAsset {
+  id          String    @id @default(uuid())
+  postId      String
+  assetType   AssetType @default(IMAGE)
+  storagePath String
+  mimeType    String    @default("image/png")
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+
+  post        Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("post_assets")
+}
+
+model GenerationJob {
+  id             String    @id @default(uuid())
+  businessId     String
+  postId         String?
+  jobType        JobType
+  status         JobStatus @default(PENDING)
+  progress       Int       @default(0)
+  stage          String?
+  errorCode      String?
+  errorMessage   String?
+  retryCount     Int       @default(0)
+  maxRetries     Int       @default(3)
+  idempotencyKey String?   @unique
+  inputPayload   Json?
+  outputPayload  Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  business       Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@map("generation_jobs")
+}
+
+model PerformanceSnapshot {
+  id          String   @id @default(uuid())
+  postId      String
+  platform    String
+  metricName  String
+  metricValue Float?   // Null means NOT recorded. Zero means recorded as zero. Never fake.
+  source      String
+  recordedAt  DateTime
+  createdAt   DateTime @default(now())
+
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, metricName])
+  @@map("performance_snapshots")
+}
+
+enum SocialPlatform {
+  LINKEDIN
+  X
+  INSTAGRAM
+  FACEBOOK
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  EXPIRED
+}
+
+model UserConsent {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  consentVersion  String   @default("1.0")
+  consentText     String
+  agreedAt        DateTime @default(now())
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_consents")
+}
+
+model SocialConnection {
+  id                   String           @id @default(uuid())
+  userId               String
+  platform             SocialPlatform
+  platformUserId       String?
+  displayName          String?
+  // Tokens stored AES-256-GCM encrypted — never stored or logged in plain text
+  encryptedAccessToken  String?
+  encryptedRefreshToken String?
+  tokenExpiresAt       DateTime?
+  scopes               String[]
+  // PKCE verifier stored temporarily during OAuth flow (cleared after exchange)
+  pkceVerifier         String?
+  oauthState           String?          // CSRF state param
+  status               ConnectionStatus @default(CONNECTED)
+  connectedAt          DateTime         @default(now())
+  disconnectedAt       DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@map("social_connections")
+}
+
+model BusinessSettings {
+  id                   String   @id @default(uuid())
+  businessId           String   @unique
+  timezone             String   @default("UTC")
+  defaultPlatform      String   @default("INSTAGRAM")
+  defaultLanguage      String   @default("en")
+  notificationsEnabled Boolean  @default(true)
+  dailyReminderTime    String   @default("09:00")
+  theme                String   @default("system")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  business             Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("business_settings")
+}
