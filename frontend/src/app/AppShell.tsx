@@ -10,14 +10,23 @@ import {
   Menu,
   X,
   Info,
+  Sparkles,
+  Link2,
+  ShieldCheck,
+  ShieldAlert,
+  CheckSquare,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useConsent } from './ConsentContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/approval', label: 'Approval Queue', icon: CheckSquare },
+  { to: '/create', label: "Create Today's Post", icon: Sparkles },
   { to: '/activity', label: "Today's AI Activity", icon: Activity },
   { to: '/posts', label: 'All Posts', icon: Layers },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/connect', label: 'Connect Accounts', icon: Link2 },
   { to: '/profile', label: 'Business Profile', icon: Building2 },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -25,6 +34,8 @@ const navItems = [
 export const AppShell: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isDemo = import.meta.env.VITE_DATA_SOURCE === 'mock' || !import.meta.env.VITE_DATA_SOURCE;
+  const { hasConsent, setShowConsentModal, connections } = useConsent();
+  const connectedCount = connections.filter(c => c.status === 'CONNECTED').length;
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-charcoal">
@@ -136,6 +147,35 @@ export const AppShell: React.FC = () => {
                 );
               })}
             </nav>
+          </div>
+
+          {/* Consent Status */}
+          <div
+            className="mx-2 mb-2 px-3 py-2 rounded-lg flex items-center gap-2 cursor-pointer transition-colors text-xs"
+            style={{
+              background: hasConsent ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+              border: hasConsent ? '1px solid rgba(16,185,129,0.2)' : '1px solid rgba(245,158,11,0.2)',
+            }}
+            onClick={() => !hasConsent && setShowConsentModal(true)}
+            role={hasConsent ? undefined : 'button'}
+            title={hasConsent ? `Posting consent given · ${connectedCount} account(s) connected` : 'Click to give consent'}
+          >
+            {hasConsent ? (
+              <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} aria-hidden="true" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: '#d97706' }} aria-hidden="true" />
+            )}
+            <div className="min-w-0">
+              <span
+                className="font-medium truncate block"
+                style={{ color: hasConsent ? '#059669' : '#d97706' }}
+              >
+                {hasConsent ? 'Consent given' : 'Consent needed'}
+              </span>
+              <span className="text-muted block" style={{ fontSize: '10px' }}>
+                {hasConsent ? `${connectedCount} account(s) connected` : 'Click to review'}
+              </span>
+            </div>
           </div>
 
           {/* User Profile Menu Placeholder */}
